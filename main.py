@@ -24,8 +24,8 @@ if not TOKEN:
 SYNC_GUILD_ID = os.getenv("SYNC_GUILD_ID")
 
 TTS_VOICE = "vi-VN-HoaiMyNeural"
-TTS_RATE = "+0%"
-TTS_PITCH = "+0Hz"
+TTS_RATE = "-10%"
+TTS_PITCH = "+20Hz"
 
 discord.utils.setup_logging(level=logging.INFO)
 logger = logging.getLogger("tts-bot")
