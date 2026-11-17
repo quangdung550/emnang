@@ -5,6 +5,7 @@ import re
 import sqlite3
 import tempfile
 import time
+from importlib.metadata import PackageNotFoundError, version as importlib_version
 from typing import Optional
 
 import discord
@@ -26,7 +27,7 @@ TTS_VOICE = "vi-VN-HoaiMyNeural"
 TTS_RATE = "+0%"
 TTS_PITCH = "+0Hz"
 
-logging.basicConfig(level=logging.INFO)
+discord.utils.setup_logging(level=logging.INFO)
 logger = logging.getLogger("tts-bot")
 
 # ==================== DATABASE ====================
@@ -208,9 +209,19 @@ async def speech_worker(guild_id: int):
                 )
 
                 active_audio_files[guild_id] = file_path
+                def _after(err):
+                    if err:
+                        logger.error("Lỗi phát audio (after): %s", err)
+
                 try:
                     source = discord.FFmpegOpusAudio(file_path)
-                    voice_client.play(source)
+                    voice_client.play(source, after=_after)
+                    logger.info(
+                        "play() gọi xong | connected=%s | channel=%s | dave=%s",
+                        voice_client.is_connected(),
+                        voice_client.channel,
+                        getattr(voice_client, "is_dave_connection", lambda: "n/a")(),
+                    )
                     while voice_client.is_playing():
                         await asyncio.sleep(0.1)
                 except Exception as e:
@@ -255,6 +266,13 @@ bot = TTSBot()
 @bot.event
 async def on_ready():
     logger.info("Bot đã sẵn sàng: %s", bot.user)
+    versions = {}
+    for pkg in ("discord.py", "edge-tts", "davey", "PyNaCl"):
+        try:
+            versions[pkg] = importlib_version(pkg)
+        except PackageNotFoundError:
+            versions[pkg] = "KHÔNG CÓ"
+    logger.info("Phiên bản: %s", versions)
     for guild in bot.guilds:
         ensure_worker(guild.id)
 
@@ -356,6 +374,21 @@ async def lock(interaction: discord.Interaction):
 async def unlock(interaction: discord.Interaction):
     set_locked_channel(interaction.guild.id, None)
     await interaction.response.send_message("Đã mở khóa.")
+
+
+@bot.tree.command(name="testtts", description="Gửi file TTS lên chat để kiểm tra có tiếng không")
+@app_commands.guild_only()
+async def testtts(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    try:
+        path = await create_tts_file("Xin chào, đây là bài kiểm tra giọng nói")
+    except Exception as e:
+        await interaction.followup.send(f"Tạo TTS lỗi: {e}", ephemeral=True)
+        return
+    try:
+        await interaction.followup.send(file=discord.File(path, "test.mp3"), ephemeral=True)
+    finally:
+        delete_audio_file(path)
 
 
 # ==================== RUN ====================
