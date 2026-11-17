@@ -23,6 +23,10 @@ if not TOKEN:
 # Nếu không đặt, bot sync global (có thể mất tới ~1 giờ để hiện).
 SYNC_GUILD_ID = os.getenv("SYNC_GUILD_ID")
 
+# (Tùy chọn) đặt OWNER_ID để chỉ định chủ sở hữu bot thủ công.
+# Nếu không đặt, bot tự lấy chủ sở hữu (hoặc các thành viên Team) từ Discord Developer Portal.
+OWNER_ID = os.getenv("OWNER_ID")
+
 TTS_VOICE = "vi-VN-HoaiMyNeural"
 TTS_RATE = "-10%"
 TTS_PITCH = "+20Hz"
@@ -222,6 +226,7 @@ async def speech_worker(guild_id: int):
                 )
 
                 active_audio_files[guild_id] = file_path
+
                 def _after(err):
                     if err:
                         logger.error("Lỗi phát audio (after): %s", err)
@@ -254,10 +259,31 @@ intents.message_content = True
 intents.voice_states = True
 
 
+class OwnerOnlyTree(app_commands.CommandTree):
+    """Chỉ chủ sở hữu bot mới được dùng slash command."""
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if await self.client.is_owner(interaction.user):
+            return True
+        await interaction.response.send_message(
+            "Chỉ chủ sở hữu bot mới được dùng lệnh này.", ephemeral=True
+        )
+        return False
+
+
 class TTSBot(commands.Bot):
     def __init__(self):
+        kwargs = {}
+        if OWNER_ID and OWNER_ID.isdigit():
+            kwargs["owner_id"] = int(OWNER_ID)
+
         # Không dùng prefix command nữa, chỉ phản hồi khi bị mention.
-        super().__init__(command_prefix=commands.when_mentioned, intents=intents)
+        super().__init__(
+            command_prefix=commands.when_mentioned,
+            intents=intents,
+            tree_cls=OwnerOnlyTree,
+            **kwargs,
+        )
 
     async def setup_hook(self):
         init_db()
