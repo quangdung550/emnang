@@ -124,21 +124,34 @@ async def create_tts_file(text: str) -> str:
     fd, file_path = tempfile.mkstemp(prefix="discord_tts_", suffix=".mp3")
     os.close(fd)
 
+    last_err: Optional[Exception] = None
     try:
-        communicate = edge_tts.Communicate(
-            text=text,
-            voice=TTS_VOICE,
-            rate=TTS_RATE,
-            pitch=TTS_PITCH,
-        )
-        await communicate.save(file_path)
+        # edge-tts đôi khi trả "No audio was received" thoáng qua -> thử lại vài lần
+        for attempt in range(1, 4):
+            try:
+                communicate = edge_tts.Communicate(
+                    text=text,
+                    voice=TTS_VOICE,
+                    rate=TTS_RATE,
+                    pitch=TTS_PITCH,
+                )
+                await communicate.save(file_path)
 
-        size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
-        if size < 1000:
-            raise RuntimeError(f"TTS tạo file quá nhỏ ({size} bytes)")
+                size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+                if size < 1000:
+                    raise RuntimeError(f"TTS tạo file quá nhỏ ({size} bytes)")
 
-        logger.info("TTS file created: %s (%s bytes)", file_path, size)
-        return file_path
+                logger.info(
+                    "TTS file created: %s (%s bytes, lần thử %d)", file_path, size, attempt
+                )
+                return file_path
+            except Exception as e:
+                last_err = e
+                logger.warning(
+                    "TTS lỗi lần %d/3 (%s: %s) | text=%r", attempt, type(e).__name__, e, text[:80]
+                )
+                await asyncio.sleep(0.5 * attempt)
+        raise last_err  # type: ignore[misc]
     except Exception:
         delete_audio_file(file_path)
         raise
@@ -217,10 +230,9 @@ async def speech_worker(guild_id: int):
                     source = discord.FFmpegOpusAudio(file_path)
                     voice_client.play(source, after=_after)
                     logger.info(
-                        "play() gọi xong | connected=%s | channel=%s | dave=%s",
+                        "play() gọi xong | connected=%s | channel=%s",
                         voice_client.is_connected(),
                         voice_client.channel,
-                        getattr(voice_client, "is_dave_connection", lambda: "n/a")(),
                     )
                     while voice_client.is_playing():
                         await asyncio.sleep(0.1)
@@ -391,6 +403,30 @@ async def testtts(interaction: discord.Interaction):
         delete_audio_file(path)
 
 
+@bot.tree.command(name="testtone", description="Phát tiếng bíp 3 giây trong voice để kiểm tra âm thanh")
+@app_commands.guild_only()
+async def testtone(interaction: discord.Interaction):
+    vc = interaction.guild.voice_client
+    if not vc or not vc.is_connected():
+        await interaction.response.send_message("Bot chưa ở trong voice, hãy /join trước.", ephemeral=True)
+        return
+    if vc.is_playing():
+        await interaction.response.send_message("Bot đang phát, thử lại sau.", ephemeral=True)
+        return
+
+    def _after(err):
+        if err:
+            logger.error("testtone lỗi: %s", err)
+
+    # Sinh tiếng bíp 440Hz bằng ffmpeg, không dùng edge-tts
+    source = discord.FFmpegOpusAudio(
+        "sine=frequency=440:duration=3",
+        before_options="-f lavfi",
+    )
+    vc.play(source, after=_after)
+    await interaction.response.send_message("Đang phát tiếng bíp 3 giây, bạn có nghe thấy không?", ephemeral=True)
+
+
 # ==================== RUN ====================
 if __name__ == "__main__":
-    bot.run(TOKEN)
+    bot.run(TOKEN, log_handler=None)  # đã gọi setup_logging ở trên
