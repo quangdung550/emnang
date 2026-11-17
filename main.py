@@ -19,8 +19,8 @@ if not TOKEN:
     raise RuntimeError("Thiếu biến môi trường DISCORD_TOKEN hoặc TOKEN")
 PREFIX = "none"
 TTS_VOICE = "vi-VN-HoaiMyNeural"
-TTS_RATE = "+0%"
-TTS_PITCH = "+0Hz"
+TTS_RATE = "-10%"
+TTS_PITCH = "+20Hz"
 
 # ==================== DATABASE ====================
 DB_PATH = "bot_data.db"
